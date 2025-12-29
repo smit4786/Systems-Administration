@@ -1,0 +1,73 @@
+import requests
+import json
+import logging
+
+# Configure logging for "Engineering-grade" visibility
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+class JamfProClient:
+    """Handles authentication and data retrieval from Jamf Pro API."""
+    
+    def __init__(self, base_url, username, password):
+        self.base_url = base_url.rstrip('/')
+        self.auth = (username, password)
+        self.token = None
+
+    def get_token(self):
+        """Fetches a Bearer Token for Pro API access."""
+        url = f"{self.base_url}/api/v1/auth/token"
+        try:
+            response = requests.post(url, auth=self.auth)
+            response.raise_for_status()
+            self.token = response.json().get('token')
+            logging.info("Successfully authenticated with Jamf Pro API.")
+            return self.token
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Authentication failed: {e}")
+            return None
+
+    def get_mac_telemetry(self):
+        """Retrieves a list of all managed computers with basic telemetry."""
+        if not self.token:
+            self.get_token()
+
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Accept": "application/json"
+        }
+        url = f"{self.base_url}/api/v1/computers-inventory?section=GENERAL&section=HARDWARE"
+        
+        try:
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            return response.json().get('results', [])
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Failed to fetch inventory: {e}")
+            return []
+
+def audit_fleet_compliance(computers):
+    """Business logic to check for compliance markers (e.g., encryption)."""
+    compliant_count = 0
+    for comp in computers:
+        # Example check: In a real scenario, you'd parse deep hardware/security sections
+        name = comp.get('general', {}).get('name', 'Unknown')
+        logging.info(f"Auditing Device: {name}")
+        compliant_count += 1
+    
+    return compliant_count
+
+if __name__ == "__main__":
+    # These would be handled via environment variables in a production GitOps workflow
+    JAMF_URL = "https://yourinstance.jamfcloud.com"
+    USER = "api_user"
+    PASS = "api_password"
+
+    client = JamfProClient(JAMF_URL, USER, PASS)
+    fleet_data = client.get_mac_telemetry()
+    
+    if fleet_data:
+        total = len(fleet_data)
+        compliant = audit_fleet_compliance(fleet_data)
+        print(f"\n--- Fleet Report ---")
+        print(f"Total Managed Devices: {total}")
+        print(f"Audit Completion: {(compliant/total)*100}%")
